@@ -89,9 +89,9 @@
 
         .canvas-container {
             position: relative;
-            width: 500px;
+            width: 500px; /* Fixed size for consistency */
             height: 500px;
-            background-color: #000; /* Dark background behind straps */
+            background-color: #000; 
             overflow: hidden;
             cursor: grab;
             user-select: none;
@@ -104,10 +104,13 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            transform-origin: center;
-            /* transform is handled by JS */
+            /* This centers the image initially. JS adds to this transform. */
+            transform: translate(-50%, -50%); 
+            transform-origin: center center;
             max-width: none; 
             z-index: 1;
+            /* Disable default drag behavior so custom JS works */
+            -webkit-user-drag: none; 
         }
 
         #watch-overlay {
@@ -119,6 +122,7 @@
             z-index: 10;
             pointer-events: none; /* Let clicks pass through to the art */
             object-fit: contain;
+            -webkit-user-drag: none;
         }
 
         /* Instructions */
@@ -188,11 +192,13 @@
         const container = document.getElementById('container');
         const scaler = document.getElementById('scaler');
         
+        // State variables
         let currentScale = 1;
-        let posX = -50; // Percent
-        let posY = -50; // Percent
+        let translateX = 0; // Pixels from center
+        let translateY = 0; // Pixels from center
         let isDragging = false;
         let startX, startY;
+        let initialTranslateX, initialTranslateY;
 
         // 1. HANDLE UPLOAD
         document.getElementById('upload').addEventListener('change', function(e) {
@@ -200,11 +206,12 @@
             if (file) {
                 art.src = URL.createObjectURL(file);
                 art.style.display = 'block';
-                // Reset positions
+                
+                // RESET Everything to Dead Center
                 scaler.value = 100;
                 currentScale = 1;
-                posX = -50; 
-                posY = -50;
+                translateX = 0;
+                translateY = 0;
                 updateTransform();
             }
         });
@@ -234,12 +241,20 @@
         container.addEventListener('touchstart', startDrag, {passive: false});
 
         function startDrag(e) {
+            if (!art.src) return; // Don't drag if no image
             e.preventDefault();
             isDragging = true;
+            
             const clientX = e.clientX || e.touches[0].clientX;
             const clientY = e.clientY || e.touches[0].clientY;
+            
             startX = clientX;
             startY = clientY;
+            
+            // Store the position where we started this specific drag
+            initialTranslateX = translateX;
+            initialTranslateY = translateY;
+
             document.addEventListener('mousemove', drag);
             document.addEventListener('touchmove', drag, {passive: false});
             document.addEventListener('mouseup', stopDrag);
@@ -254,15 +269,8 @@
             const dx = clientX - startX;
             const dy = clientY - startY;
 
-            // Convert pixels to percentage to keep it responsive
-            const containerWidth = container.offsetWidth;
-            const containerHeight = container.offsetHeight;
-
-            posX += (dx / containerWidth) * 100;
-            posY += (dy / containerHeight) * 100;
-
-            startX = clientX;
-            startY = clientY;
+            translateX = initialTranslateX + dx;
+            translateY = initialTranslateY + dy;
 
             updateTransform();
         }
@@ -276,11 +284,11 @@
         }
 
         function updateTransform() {
-            // Apply translation in percent, scale raw
-            art.style.transform = `translate(${posX}%, ${posY}%) translate(-50%, -50%) scale(${currentScale})`;
-            // Note: The second translate(-50%, -50%) is to counter-act the CSS centering so drag logic is easier
-            art.style.left = "50%";
-            art.style.top = "50%";
+            // Logic:
+            // 1. translate(-50%, -50%): Moves the image so its top-left corner is at the center of the container (centering it).
+            // 2. translate(X, Y): Adds the user's drag offset.
+            // 3. scale(S): Zooms in/out.
+            art.style.transform = `translate(-50%, -50%) translate(${translateX}px, ${translateY}px) scale(${currentScale})`;
         }
 
         // 5. DOWNLOAD LOGIC
@@ -295,27 +303,32 @@
             ctx.fillStyle = "black";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Calculate Art Position for 1000x1000 canvas
-            // The container is 500px, so we multiply logic by 2
             if(art.src) {
-                const imgWidth = art.naturalWidth * currentScale * (canvas.width / 500);
-                const imgHeight = art.naturalHeight * currentScale * (canvas.height / 500);
+                // We need to map the container size (500) to canvas size (1000)
+                const ratio = canvas.width / container.offsetWidth;
+
+                // 1. Calculate scaled dimensions
+                const imgWidth = art.naturalWidth * currentScale * ratio;
+                const imgHeight = art.naturalHeight * currentScale * ratio;
                 
+                // 2. Find Center of Canvas
                 const centerX = canvas.width / 2;
                 const centerY = canvas.height / 2;
                 
-                // Offset calculation based on the percentage movement
-                const offsetX = (posX + 50) * (canvas.width / 100); 
-                const offsetY = (posY + 50) * (canvas.height / 100);
+                // 3. Apply the drag offset (scaled up by ratio)
+                const offsetX = translateX * ratio; 
+                const offsetY = translateY * ratio;
 
+                // 4. Draw
                 ctx.save();
+                // Move to the calculated center point
                 ctx.translate(centerX + offsetX, centerY + offsetY);
+                // Draw image centered at that point
                 ctx.drawImage(art, -imgWidth/2, -imgHeight/2, imgWidth, imgHeight);
                 ctx.restore();
             }
 
             // Draw Overlay
-            // Note: We use the cached image from DOM to avoid reloading
             ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
 
             // Trigger Download
@@ -325,7 +338,7 @@
                 link.href = canvas.toDataURL();
                 link.click();
             } catch (err) {
-                alert("Security Restriction: The browser blocked the automated download because the images are hosted externally. Please use a Screenshot tool instead!");
+                alert("Security Restriction: The browser blocked the automated download. Please use a Screenshot tool instead!");
             }
         }
     </script>
