@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Big Time GRAND - Design Studio</title>
+    <style>
+        /* LUXURY THEME STYLING */
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap');
+
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Roboto', sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            font-family: 'Playfair Display', serif;
+            color: #d4af37; /* Gold */
+            margin-bottom: 10px;
+            letter-spacing: 2px;
+            font-weight: 700;
+        }
+
+        p { color: #888; margin-bottom: 30px; font-size: 0.9rem; }
+
+        /* THE CONTROL PANEL */
+        .controls {
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 30px;
+            border: 1px solid #333;
+        }
+
+        button, .file-upload {
+            background: #333;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 10px 20px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-family: 'Roboto', sans-serif;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        button:hover, .file-upload:hover {
+            background: #d4af37;
+            color: #000;
+            border-color: #d4af37;
+        }
+
+        button.active {
+            background: #d4af37;
+            color: #000;
+            font-weight: bold;
+        }
+
+        input[type="file"] { display: none; }
+        
+        input[type="range"] {
+            accent-color: #d4af37;
+            cursor: pointer;
+        }
+
+        /* THE WORKSPACE */
+        .workspace-border {
+            border: 2px solid #333;
+            padding: 10px;
+            border-radius: 4px;
+            background: #000;
+        }
+
+        .canvas-container {
+            position: relative;
+            width: 500px;
+            height: 500px;
+            background-color: #000; /* Dark background behind straps */
+            overflow: hidden;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .canvas-container:active { cursor: grabbing; }
+
+        /* IMAGES */
+        #user-art {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: center;
+            /* transform is handled by JS */
+            max-width: none; 
+            z-index: 1;
+        }
+
+        #watch-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* Let clicks pass through to the art */
+            object-fit: contain;
+        }
+
+        /* Instructions */
+        .instructions {
+            margin-top: 20px;
+            color: #555;
+            font-size: 0.8rem;
+            max-width: 400px;
+            line-height: 1.5;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>BIG TIME DESIGN STUDIO</h1>
+    <p>Upload Art. Drag to Position. Switch Bezels.</p>
+
+    <div class="controls">
+        <!-- Upload -->
+        <label class="file-upload">
+            📂 Upload Art
+            <input type="file" id="upload" accept="image/*">
+        </label>
+
+        <!-- Bezel Switcher -->
+        <button id="btn-plain" class="active" onclick="switchBezel('plain')">Clean Bezel</button>
+        <button id="btn-screw" onclick="switchBezel('screw')">Screw Bezel</button>
+
+        <!-- Zoom -->
+        <div style="display: flex; align-items: center; gap: 10px; color: #888;">
+            <small>ZOOM</small>
+            <input type="range" id="scaler" min="20" max="300" value="100">
+        </div>
+
+        <!-- Download -->
+        <button onclick="downloadDesign()" style="background-color: #d4af37; color: black; font-weight: bold;">
+            ⬇ Save Image
+        </button>
+    </div>
+
+    <div class="workspace-border">
+        <div class="canvas-container" id="container">
+            <!-- The User's Art -->
+            <img id="user-art" src="" alt="">
+            
+            <!-- The Watch Case Overlay -->
+            <img id="watch-overlay" crossorigin="anonymous" src="https://i.postimg.cc/T1d7B695/btg57pruple-rg.png">
+        </div>
+    </div>
+
+    <div class="instructions">
+        Tip: Click and drag on the watch face to move your art around.<br>
+        If the 'Save' button doesn't work due to browser security, simply take a screenshot.
+    </div>
+
+    <!-- Hidden canvas for generating the download -->
+    <canvas id="export-canvas" width="1000" height="1000" style="display:none;"></canvas>
+
+    <script>
+        // URLs provided
+        const urlPlain = "https://i.postimg.cc/T1d7B695/btg57pruple-rg.png";
+        const urlScrew = "https://i.postimg.cc/P5JxTvx2/btg57pruple-rg-(1).png";
+
+        const art = document.getElementById('user-art');
+        const overlay = document.getElementById('watch-overlay');
+        const container = document.getElementById('container');
+        const scaler = document.getElementById('scaler');
+        
+        let currentScale = 1;
+        let posX = -50; // Percent
+        let posY = -50; // Percent
+        let isDragging = false;
+        let startX, startY;
+
+        // 1. HANDLE UPLOAD
+        document.getElementById('upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                art.src = URL.createObjectURL(file);
+                art.style.display = 'block';
+                // Reset positions
+                scaler.value = 100;
+                currentScale = 1;
+                posX = -50; 
+                posY = -50;
+                updateTransform();
+            }
+        });
+
+        // 2. HANDLE BEZEL SWITCH
+        function switchBezel(type) {
+            document.getElementById('btn-plain').className = '';
+            document.getElementById('btn-screw').className = '';
+            
+            if (type === 'plain') {
+                overlay.src = urlPlain;
+                document.getElementById('btn-plain').className = 'active';
+            } else {
+                overlay.src = urlScrew;
+                document.getElementById('btn-screw').className = 'active';
+            }
+        }
+
+        // 3. HANDLE ZOOM
+        scaler.addEventListener('input', function(e) {
+            currentScale = e.target.value / 100;
+            updateTransform();
+        });
+
+        // 4. HANDLE DRAG AND DROP
+        container.addEventListener('mousedown', startDrag);
+        container.addEventListener('touchstart', startDrag, {passive: false});
+
+        function startDrag(e) {
+            e.preventDefault();
+            isDragging = true;
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            startX = clientX;
+            startY = clientY;
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('touchmove', drag, {passive: false});
+            document.addEventListener('mouseup', stopDrag);
+            document.addEventListener('touchend', stopDrag);
+        }
+
+        function drag(e) {
+            if (!isDragging) return;
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            
+            const dx = clientX - startX;
+            const dy = clientY - startY;
+
+            // Convert pixels to percentage to keep it responsive
+            const containerWidth = container.offsetWidth;
+            const containerHeight = container.offsetHeight;
+
+            posX += (dx / containerWidth) * 100;
+            posY += (dy / containerHeight) * 100;
+
+            startX = clientX;
+            startY = clientY;
+
+            updateTransform();
+        }
+
+        function stopDrag() {
+            isDragging = false;
+            document.removeEventListener('mousemove', drag);
+            document.removeEventListener('touchmove', drag);
+            document.removeEventListener('mouseup', stopDrag);
+            document.removeEventListener('touchend', stopDrag);
+        }
+
+        function updateTransform() {
+            // Apply translation in percent, scale raw
+            art.style.transform = `translate(${posX}%, ${posY}%) translate(-50%, -50%) scale(${currentScale})`;
+            // Note: The second translate(-50%, -50%) is to counter-act the CSS centering so drag logic is easier
+            art.style.left = "50%";
+            art.style.top = "50%";
+        }
+
+        // 5. DOWNLOAD LOGIC
+        function downloadDesign() {
+            const canvas = document.getElementById('export-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Fill Background black
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Calculate Art Position for 1000x1000 canvas
+            // The container is 500px, so we multiply logic by 2
+            if(art.src) {
+                const imgWidth = art.naturalWidth * currentScale * (canvas.width / 500);
+                const imgHeight = art.naturalHeight * currentScale * (canvas.height / 500);
+                
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                
+                // Offset calculation based on the percentage movement
+                const offsetX = (posX + 50) * (canvas.width / 100); 
+                const offsetY = (posY + 50) * (canvas.height / 100);
+
+                ctx.save();
+                ctx.translate(centerX + offsetX, centerY + offsetY);
+                ctx.drawImage(art, -imgWidth/2, -imgHeight/2, imgWidth, imgHeight);
+                ctx.restore();
+            }
+
+            // Draw Overlay
+            // Note: We use the cached image from DOM to avoid reloading
+            ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
+
+            // Trigger Download
+            try {
+                const link = document.createElement('a');
+                link.download = 'BigTime-Design.png';
+                link.href = canvas.toDataURL();
+                link.click();
+            } catch (err) {
+                alert("Security Restriction: The browser blocked the automated download because the images are hosted externally. Please use a Screenshot tool instead!");
+            }
+        }
+    </script>
+</body>
+</html>
